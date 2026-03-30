@@ -1,0 +1,182 @@
+import requests
+import base64
+import json
+from typing import Any, Type, List, Dict, ClassVar
+from pydantic import BaseModel, Field
+from crewai.tools import BaseTool
+
+
+# -------------------------------------------------
+# Input Schema
+# -------------------------------------------------
+class UnifiedGitHubOperationsToolSchema(BaseModel):
+    action: str = Field(..., description="Allowed: read_repository, read_pr_files, post_pr_review")
+    repo_url: str = Field(None, description="Repository URL (required for read_repository)")
+    branch: str = Field(None, description="Branch name (required for read_repository)")
+    pr_url: str = Field(None, description="Pull Request URL (required for read_pr_files, post_pr_review)")
+    github_token: str = Field(..., description="GitHub Personal Access Token", json_schema_extra={"secret": True})
+
+    general_comment: str = Field(None, description="General PR review comment (required for post_pr_review)")
+    inline_comments: List[Dict[str, Any]] = Field(
+        None,
+        description="List of inline comments: {file_path, position, comment}"
+    )
+
+
+# -------------------------------------------------
+# Tool Implementation
+# -------------------------------------------------
+class UnifiedGitHubOperationsTool(BaseTool):
+
+    name: str = "Unified GitHub Operations Tool"
+    description: str = "Reads repositories, PR files, and posts PR reviews using GitHub REST APIs."
+    args_schema: Type[BaseModel] = UnifiedGitHubOperationsToolSchema
+
+    # âœ… ClassVar prevents Pydantic field errors
+    GITHUB_API_BASE: ClassVar[str] = "https://github.azc.ext.hp.com/api/v3"
+
+    # -----------------------------
+    def _run(
+        self,
+        action: str,
+        repo_url: str = None,
+        branch: str = None,
+        pr_url: str = None,
+        github_token: str = None,
+        general_comment: str = None,
+        inline_comments: List[Dict[str, Any]] = None
+    ) -> str:
+
+        try:
+            headers = {
+                "Authorization": f"Bearer {github_token}",
+                "Accept": "application/vnd.github+json"
+            }
+
+            # =================================================
+            # ACTION 1 : READ FULL REPOSITORY
+            # =================================================
+            if action == "read_repository":
+
+                owner, repo = self._parse_repo_url(repo_url)
+
+                ref_url = f"{self.GITHUB_API_BASE}/repos/{owner}/{repo}/git/refs/heads/{branch}"
+                ref_resp = requests.get(ref_url, headers=headers)
+                ref_resp.raise_for_status()
+                commit_sha = ref_resp.json()["object"]["sha"]
+
+                commit_url = f"{self.GITHUB_API_BASE}/repos/{owner}/{repo}/git/commits/{commit_sha}"
+                commit_resp = requests.get(commit_url, headers=headers)
+                commit_resp.raise_for_status()
+                tree_sha = commit_resp.json()["tree"]["sha"]
+
+                tree_url = f"{self.GITHUB_API_BASE}/repos/{owner}/{repo}/git/trees/{tree_sha}?recursive=1"
+                tree_resp = requests.get(tree_url, headers=headers)
+                tree_resp.raise_for_status()
+
+                files = []
+
+                for item in tree_resp.json().get("tree", []):
+                    if item["type"] == "blob":
+                        path = item["path"]
+                        content_url = f"{self.GITHUB_API_BASE}/repos/{owner}/{repo}/contents/{path}?ref={branch}"
+                        content_resp = requests.get(content_url, headers=headers)
+
+                        if content_resp.status_code != 200:
+                            continue
+
+                        encoded = content_resp.json().get("content", "")
+                        decoded = base64.b64decode(encoded).decode("utf-8", errors="replace")
+                        files.append({"path": path, "content": decoded})
+
+                return json.dumps({
+                    "status": "SUCCESS",
+                    "details": {
+                        "repository": f"{owner}/{repo}",
+                        "branch": branch,
+                        "file_count": len(files),
+                        "files": files
+                    }
+                }, indent=2)
+
+            # =================================================
+            # ACTION 2 : READ PR FILES
+            # =================================================
+            if action == "read_pr_files":
+
+                owner, repo, pull_number = self._parse_pr_url(pr_url)
+
+                files_url = f"{self.GITHUB_API_BASE}/repos/{owner}/{repo}/pulls/{pull_number}/files"
+                files_resp = requests.get(files_url, headers=headers)
+                files_resp.raise_for_status()
+
+                files = [
+                    {
+                        "file_path": f["filename"],
+                        "patch": f.get("patch", "")
+                    }
+                    for f in files_resp.json()
+                ]
+
+                return json.dumps({
+                    "status": "SUCCESS",
+                    "files": files
+                }, indent=2)
+
+            # =================================================
+            # ACTION 3 : POST PR REVIEW
+            # =================================================
+            if action == "post_pr_review":
+
+                owner, repo, pull_number = self._parse_pr_url(pr_url)
+
+                review_payload = {
+                    "body": general_comment,
+                    "event": "COMMENT",
+                    "comments": []
+                }
+
+                if inline_comments:
+                    for c in inline_comments:
+                        review_payload["comments"].append({
+                            "path": c["file_path"],
+                            "position": c["position"],
+                            "body": c["comment"]
+                        })
+
+                review_url = f"{self.GITHUB_API_BASE}/repos/{owner}/{repo}/pulls/{pull_number}/reviews"
+                review_resp = requests.post(review_url, headers=headers, json=review_payload)
+                review_resp.raise_for_status()
+
+                return json.dumps({
+                    "status": "SUCCESS",
+                    "number_of_inline_comments_posted": len(inline_comments) if inline_comments else 0,
+                    "confirmation_of_general_review_comment_posting": general_comment
+                }, indent=2)
+
+            # =================================================
+            # INVALID ACTION
+            # =================================================
+            return json.dumps({
+                "status": "FAILED",
+                "error_message": "Invalid action provided."
+            }, indent=2)
+
+        except Exception as e:
+            return json.dumps({
+                "status": "FAILED",
+                "error_message": str(e)
+            }, indent=2)
+
+    # -------------------------------------------------
+    # Helpers
+    # -------------------------------------------------
+    def _parse_repo_url(self, repo_url: str) -> tuple:
+        parts = repo_url.rstrip("/").split("/")
+        return parts[-2], parts[-1]
+
+    def _parse_pr_url(self, pr_url: str) -> tuple:
+        parts = pr_url.rstrip("/").split("/")
+        return parts[-4], parts[-3], parts[-1]
+
+ 

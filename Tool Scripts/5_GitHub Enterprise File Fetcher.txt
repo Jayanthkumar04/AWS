@@ -1,0 +1,194 @@
+import base64
+import re
+import requests
+from typing import Type, List
+from pydantic import BaseModel, Field, field_validator
+from crewai.tools import BaseTool
+
+
+class GitHubEnterpriseFileFetcherSchema(BaseModel):
+    """Input schema for GitHubEnterpriseFileFetcher."""
+
+    repo_base_url: str = Field(
+        ...,
+        description="Repository URL (must start with https://github.azc.ext.hp.com/{org}/{repo})"
+    )
+
+    token: str = Field(
+        ...,
+        description="GitHub Enterprise Personal Access Token (PAT)"
+    )
+
+    branch: str = Field(
+        ...,
+        description="Branch name"
+    )
+
+    file_paths: List[str] = Field(
+        ...,
+        description="List of file or directory paths to fetch"
+    )
+
+    @field_validator("repo_base_url")
+    def validate_repo_url(cls, v):
+        if not v.startswith("https://github.azc.ext.hp.com"):
+            raise ValueError(
+                "Repository URL must start with https://github.azc.ext.hp.com"
+            )
+        return v
+
+    @field_validator("token")
+    def validate_token(cls, v):
+        # GitHub PAT formats (classic + fine-grained)
+        if not re.match(r"^(ghp_|github_pat_)[A-Za-z0-9_]{20,}$", v):
+            raise ValueError("Invalid GitHub token format")
+        return v
+
+
+class GitHubEnterpriseFileFetcher(BaseTool):
+
+    name: str = "GitHub Enterprise File Fetcher"
+    description: str = (
+        "Fetches files or folders recursively from "
+        "https://github.azc.ext.hp.com using API v3."
+    )
+    args_schema: Type[BaseModel] = GitHubEnterpriseFileFetcherSchema
+
+    def _run(
+        self,
+        repo_base_url: str,
+        token: str,
+        branch: str,
+        file_paths: List[str],
+    ) -> str:
+
+        cleaned_url = repo_base_url.replace(
+            "https://github.azc.ext.hp.com/", ""
+        ).strip("/")
+
+        parts = cleaned_url.split("/")
+        if len(parts) < 2:
+            return "Invalid repository URL format"
+
+        org = parts[0]
+        repo = parts[1]
+
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github.v3+json",
+        }
+
+        results = []
+
+        for path in file_paths:
+
+            if "../" in path or "%2e%2e" in path.lower():
+                results.append(
+                    f"---FILE_START---\n"
+                    f"PATH: {path}\n"
+                    f"ERROR: Path traversal detected\n"
+                    f"---FILE_END---"
+                )
+                continue
+
+            safe_path = path.lstrip("/")
+
+            try:
+                self._fetch_recursive(
+                    org,
+                    repo,
+                    safe_path,
+                    branch,
+                    headers,
+                    results,
+                )
+
+            except requests.exceptions.HTTPError as e:
+                if e.response.status_code in (401, 403):
+                    return "AUTHENTICATION_ERROR"
+                elif e.response.status_code == 404:
+                    results.append(
+                        f"---FILE_START---\n"
+                        f"PATH: {safe_path}\n"
+                        f"ERROR: File not found\n"
+                        f"---FILE_END---"
+                    )
+                else:
+                    results.append(
+                        f"---FILE_START---\n"
+                        f"PATH: {safe_path}\n"
+                        f"ERROR: An unexpected error occurred\n"
+                        f"---FILE_END---"
+                    )
+
+            except Exception:
+                results.append(
+                    f"---FILE_START---\n"
+                    f"PATH: {safe_path}\n"
+                    f"ERROR: An unexpected error occurred\n"
+                    f"---FILE_END---"
+                )
+
+        return "\n\n".join(results)
+
+    def _fetch_recursive(
+        self,
+        org: str,
+        repo: str,
+        path: str,
+        branch: str,
+        headers: dict,
+        results: list,
+    ) -> None:
+
+        url = (
+            "https://github.azc.ext.hp.com/"
+            f"api/v3/repos/{org}/{repo}/contents/{path}"
+        )
+
+        response = requests.get(
+            url,
+            headers=headers,
+            params={"ref": branch},
+            timeout=15,
+            verify=True,
+        )
+
+        if response.status_code in (401, 403):
+            raise requests.exceptions.HTTPError(response=response)
+
+        if response.status_code == 404:
+            raise requests.exceptions.HTTPError(response=response)
+
+        response.raise_for_status()
+
+        data = response.json()
+
+        if isinstance(data, dict) and data.get("type") == "file":
+            encoded_content = data.get("content", "")
+            decoded_content = ""
+
+            if encoded_content:
+                decoded_content = base64.b64decode(
+                    encoded_content
+                ).decode("utf-8", errors="ignore")
+
+            results.append(
+                f"---FILE_START---\n"
+                f"PATH: {data.get('path')}\n"
+                f"CONTENT:\n{decoded_content}\n"
+                f"---FILE_END---"
+            )
+            return
+
+        if isinstance(data, list):
+            for item in data:
+                if item["type"] in ("file", "dir"):
+                    self._fetch_recursive(
+                        org,
+                        repo,
+                        item["path"],
+                        branch,
+                        headers,
+                        results,
+                    )

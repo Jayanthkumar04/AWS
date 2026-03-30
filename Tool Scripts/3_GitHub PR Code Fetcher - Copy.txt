@@ -1,0 +1,147 @@
+import re
+import os
+import requests
+from typing import Any, Type
+from pydantic import BaseModel, Field, validator
+from crewai.tools import BaseTool
+from urllib.parse import urlparse
+import base64
+
+
+# ✅ FIX: Remove hardcoded values
+GITHUB_DOMAIN = os.getenv("GITHUB_DOMAIN")
+GITHUB_API_BASE = os.getenv("GITHUB_API_BASE")
+
+if not GITHUB_DOMAIN or not GITHUB_API_BASE:
+    raise ValueError("GitHub configuration must be set via environment variables")
+
+
+class GitHubPRCodeFetcherSchema(BaseModel):
+    pr_url: str = Field(...)
+    github_token: str = Field(...)
+
+    # ✅ SSRF FIX
+    @validator('pr_url')
+    def validate_pr_url(cls, v):
+        parsed = urlparse(v)
+
+        if parsed.scheme != "https":
+            raise ValueError("Only HTTPS allowed")
+
+        if parsed.hostname != GITHUB_DOMAIN:
+            raise ValueError("Invalid GitHub domain")
+
+        parts = parsed.path.strip('/').split('/')
+        if len(parts) < 4 or parts[-2] != 'pull':
+            raise ValueError("Invalid PR URL format")
+
+        # strict validation
+        if not re.fullmatch(
+            rf"https://{re.escape(GITHUB_DOMAIN)}/[\w\-.]+/[\w\-.]+/pull/\d+",
+            v
+        ):
+            raise ValueError("Invalid PR URL")
+
+        return v
+
+    # ✅ Token validation (HIGH FIX)
+    @validator('github_token')
+    def validate_token(cls, v):
+        if not re.fullmatch(
+            r"(gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{20,})",
+            v
+        ):
+            raise ValueError("Invalid GitHub token format")
+        return v
+
+
+class GitHubPRCodeFetcher(BaseTool):
+
+    name: str = "GitHub PR Code Fetcher"
+    description: str = "Fetch code from GitHub PR securely"
+    args_schema: Type[BaseModel] = GitHubPRCodeFetcherSchema
+
+    def _headers(self, token: str):
+        return {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github.v3+json"
+        }
+
+    def _validate_token_scope(self, token: str) -> bool:
+        try:
+            r = requests.get(
+                f"{GITHUB_API_BASE}/user",
+                headers=self._headers(token),
+                timeout=10,
+                verify=True
+            )
+            return r.status_code == 200
+        except Exception:
+            return False
+
+    def _run(self, pr_url: str, github_token: str) -> str:
+        try:
+            # token validation
+            if not self._validate_token_scope(github_token):
+                return "Invalid or unauthorized token"
+
+            parsed = urlparse(pr_url)
+            parts = parsed.path.strip('/').split('/')
+
+            owner = parts[-4]
+            repo = parts[-3]
+            pr_number = parts[-1]
+
+            # extra SSRF safety (strict allowlist)
+            if not re.fullmatch(r"[A-Za-z0-9_.-]+", owner):
+                raise ValueError("Invalid owner")
+            if not re.fullmatch(r"[A-Za-z0-9_.-]+", repo):
+                raise ValueError("Invalid repo")
+            if not pr_number.isdigit():
+                raise ValueError("Invalid PR number")
+
+            headers = self._headers(github_token)
+
+            # PR details
+            pr_endpoint = f"{GITHUB_API_BASE}/repos/{owner}/{repo}/pulls/{pr_number}"
+            pr_data = requests.get(pr_endpoint, headers=headers, timeout=10).json()
+
+            # files
+            files_endpoint = f"{GITHUB_API_BASE}/repos/{owner}/{repo}/pulls/{pr_number}/files"
+            files_data = requests.get(files_endpoint, headers=headers, timeout=10).json()
+
+            head_sha = pr_data.get('head', {}).get('sha', '')
+
+            result = []
+            result.append(f"PR #{pr_number}: {pr_data.get('title', '')}")
+
+            for file in files_data:
+                file_path = file.get('filename', '')
+
+                # safe path check
+                if ".." in file_path or file_path.startswith("/"):
+                    continue
+
+                result.append(f"File: {file_path}")
+
+                if file.get('status') != 'removed' and head_sha:
+                    content_url = f"{GITHUB_API_BASE}/repos/{owner}/{repo}/contents/{file_path}?ref={head_sha}"
+                    resp = requests.get(content_url, headers=headers, timeout=10)
+
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        if 'content' in data:
+                            try:
+                                decoded = base64.b64decode(data['content'], validate=True).decode('utf-8')
+                                result.append(decoded[:1000])  # limit output
+                            except Exception:
+                                result.append("Decode failed")
+
+                result.append("---")
+
+            return "\n".join(result)
+
+        except requests.RequestException:
+            return "Request failed"
+        except Exception:
+            return "Unexpected error"
