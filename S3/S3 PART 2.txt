@@ -1,0 +1,57 @@
+                                        S3
+					 ||
+					\ /
+                                      Bucket1                         BUCKET 2
+                                          ||                                         ||
+                                         \ /                                      \   /
+                          OBJ 1   OBJ 2  OBJ3           OBJ1 OBJ2 OBJ3
+
+==============
+S3 in Spring Boot Applicaation
+======================
+
+******
+I)We need AWS SDK 
+
+II)It contains various tools ,various api calls to connect with AWS cloud
+
+III)AWS sdk contains S3 client
+
+IV)s3 client is classs provided by aws sdk and we can perform operations on sdk
+
+==============
+STEPS
+===============
+1)download aws sdk dependency
+
+
+2)Create S3 Config class
+
+     @Configurration    , mark s3 client  method as @bean
+
+      we need access key ,secret key 
+
+============
+CONFIG CLASS
+=============
+
+
+
+===========
+to enable public access and access objects
+=============
+i)add following policy
+
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "PublicReadGetObject",
+      "Effect": "Allow",
+      "Principal": "*",
+      "Action": "s3:GetObject",
+      "Resource": "arn:aws:s3:::YOUR_BUCKET_NAME/*"
+    }
+  ]
+}
+

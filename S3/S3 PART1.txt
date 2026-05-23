@@ -1,0 +1,52 @@
+===
+S3
+===
+Amazon S3 is a highly scalable,durable and secure object storage service.
+
+allows to store any amount of dta such as files,images,videos,logs,backups etc
+
+
+
+============
+key concepts
+=============
+
+1)Bucket ==> like a folder ,Top level container for you files(objects)
+
+2)object ==> any file you upload(with metadata and key)
+
+3)key  ==> unique name for object in bucket
+
+4)region :Aws region where bucket resides
+
+5)Storage classes:Differernet cost 
+
+6)Public access :Controls who can access buckets or files
+
+
+
+===========
+Steps to create
+============
+
+1)Go to S3 service
+
+2)bucket type ==> general purpose
+                             DIRECTORY PURPOSE(only from single zone , for faster access and faster processing)
+3)bucket name (unique)
+
+
+4)object ownerrsihp(to control ownership on objects)
+ Acl(access control list)
+acl disabled(only owner can decide acees)
+acl enabled(any other user)
+
+5)Block public access setting for this bucket
+
+
+6)Bucket versioning  ==>disabled (for backup purpose)
+
+7)Tags to differentiate like dev bucket , prod bucket
+
+8)Default Encryption
+
