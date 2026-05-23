@@ -1,0 +1,48 @@
+RDS (RELATIONAL DATABASE0
+1)data stored in tables in a structured format
+
+2)MySQL,postgre sql,oracle sql
+
+3)these must be deployed to cloud
+
+RDS =>is a managed DB service from AWS that makes it easy to setp operate and scale rdms
+
+
+Aurora (amazon's sql db)
+
+
+=================
+HOW TO CREATE DB
+==================
+
+
+1)creaate database
+
+2)standard or easy create
+
+3)engine options => MYSQL
+
+4)Edition =>mysql comm
+
+5)engine version==>
+
+6)Templates  ==>for prac use free tier
+
+==========
+connectivity
+==========
+connect or don't connect to ec2
+
+public access=>yes
+
+
+========
+vpc security group
+============
+I)create new   ii0database-vpc
+
+tag=>optional
+
+
+after create  configure in local that it 
+in next lesson connect to spring boot

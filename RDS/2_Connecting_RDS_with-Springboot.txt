@@ -1,0 +1,1 @@
+its simple just change the url and credentials of database in application.properties
