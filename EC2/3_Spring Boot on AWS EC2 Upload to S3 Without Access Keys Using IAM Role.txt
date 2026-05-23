@@ -1,0 +1,48 @@
+This can be done using Roles in IAM
+
+
+I)create application-dev.properties
+cloud.aws.region=us-east-1
+
+cloud.aws.bucket.name=s3tutorial-purpose
+
+
+ii)change config class  (Default Credentials Provider0
+{
+	@Bean("s3Client")
+	@Profile("local")
+	public S3Client s3Client()
+	{ 
+same
+	}
+	
+	
+	@Bean("s3Client")
+	@Profile("dev")
+	public S3Client s3ClientDev()
+	{
+		
+		return S3Client.builder()
+			    .region(Region.of(region))
+			    .credentialsProvider(DefaultCredentialsProvider.create())
+			    .build();
+	}
+	
+}
+
+
+iii)Select create role
+    a)trusted entity ==> aws service
+  
+   b)use case ==>ec 2
+
+
+ how to run in Linux 
+
+========
+========
+nohup java -Dspring.profiles.active=dev  -jar demo.jar > output.log 2>&1 &
+
+
+http://ec2-3-239-172-72.compute-1.amazonaws.com:8080/upload
+

@@ -1,0 +1,63 @@
+=============
+AWS ECE(ELASTIC CLOUD COMPUTING)
+=============
+It is a cloud service which lets us launch and manage virtual servers  called instances in aws cloud
+delivers secure ,on demand,scalabe compute capacirty ,can add or remove whenever we want and pay for only what we use
+
+
+
+ELASTIC ==>scalable
+
+COMPUTE =>processing  power
+
+Cloud ==> aws infra
+
+
+maintain own servers and physical infra ,it is a burdern for maintain and security and very expensive
+
+so uses aws cloud
+
+1)ami(amazon machine image)
+
+2)instance type like (ram)
+
+3)key pair ==> application connecting to instance securely done through ssh(securely connect to a remote computer over network)
+
+4)Security Group =>acts as a firewall (basically group of rules which tells who can enter instance (basically is port allowed to enter or not?)
+
+5)configure storage (rom)
+
+6)advanced settings=> 
+ 
+shell script
+
+========
+#!/bin/bash
+yum update -y
+yum install -y httpd
+systemctl start httpd
+systemctl enable httpd
+
+echo "<html>
+  <head><title>My First AWS Page</title></head>
+  <body>
+    <h1>Hello from EC2!</h1>
+    <p>This is a static HTML page hosted on Apache.</p>
+  </body>
+</html>" > /var/www/html/index.html
+==========
+for this to run the http inbound rule must be added
+
+
+
+
+==========
+how to connect
+===========
+
+1)connect directly 
+
+2)or through gitbash
+
+
+3)or through putty

@@ -1,0 +1,65 @@
+1)Create simple springboot application
+
+2)Create new instance 
+
+=>runs perfect in local
+
+=>to deploy it in ec2
+   I)create jar of the application (mvn clean package)
+  II)to copy jar to ec2
+   scp -i <your-key.pem> demo.jar ec2-user@<public-ip>:/home/ec2-user/
+
+ ssh -i "ec2-tutorial.pem" ec2-user@ec2-44-204-115-223.compute-1.amazonaws.com
+
+only following part==>
+ec2-user@ec2-44-204-115-223.compute-1.amazonaws.com
+
+iii) install java
+
+sudo yum update -y
+sudo amazon-linux-extras enable corretto17
+sudo yum install java-17-amazon-corretto -y
+java -version
+
+
+and enable 8080 port in security settingssss
+
+
+=========
+even if tab is closed , the ec2 must run
+
+
+I)it can be run using nohup
+
+
+ 4. Run Spring Boot JAR with nohup
+nohup java -jar demo.jar > output.log 2>&1 &
+
+
+Explanation:
+nohup: Prevents the app from stopping after logout
+
+
+> output.log: Saves app logs
+
+
+2>&1: Also saves error logs
+
+
+&: Runs in background
+
+==============
+If you want to STOP the background process:
+
+1. Find PID
+ps -ef | grep EC2TUTORIAL
+
+Example output:
+
+ec2-user  31245  ... java -jar EC2TUTORIAL-0.0.1-SNAPSHOT.jar
+
+Here 31245 is PID.
+
+2. Kill the Process
+kill -9 31245
+==================
